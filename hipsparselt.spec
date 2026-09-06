@@ -1,0 +1,70 @@
+# Structured-sparsity BLAS. TheRock 10.0.
+
+Name:		hipsparselt
+Version:	10.0.0
+Release:	1
+Summary:	HIP structured-sparsity sparse-matrix library
+License:	MIT
+Group:		System/Libraries
+URL:		https://github.com/ROCm/rocm-libraries
+Source0:	%{rocm_libraries_source hipsparselt}
+
+BuildRequires:	rocm-rpm-macros
+BuildRequires:	cmake
+BuildRequires:	ninja
+BuildRequires:	rocm-cmake
+BuildRequires:	hipcc
+BuildRequires:	rocm-hip-devel
+BuildRequires:	hipsparse-devel
+BuildRequires:	clang >= %{rocm_llvm_maj_ver}
+
+%description
+hipSPARSELt implements structured-sparsity GEMM (the HIP counterpart
+of cuSPARSELt). PyTorch USE_HIPSPARSELT needs this library.
+
+%package devel
+Summary:	Development files for %{name}
+Group:		Development/C++
+Requires:	%{name}%{?_isa} = %{version}-%{release}
+Requires:	hipsparse-devel
+
+%description devel
+Headers and CMake package for hipSPARSELt.
+
+%prep
+%autosetup -n hipsparselt -p1
+
+%build
+export CXX=hipcc
+export CC=clang
+export TMPDIR=%{_builddir}/.hsplt-tmp
+mkdir -p "$TMPDIR"
+CXXFLAGS=$(printf '%s' "%{optflags}" | sed -E 's/-mfpmath=[^ ]+//g; s/ -m[a-z0-9+.=]+//g')
+export CXXFLAGS
+%cmake %{rocm_cmake_fhs} %{rocm_cmake_gpu_targets_hipblaslt} \
+	-DCMAKE_BUILD_TYPE=Release \
+	-DCMAKE_CXX_COMPILER=hipcc \
+	-DCMAKE_CXX_FLAGS="$CXXFLAGS" \
+	-DHIPSPARSELT_BUILD_TESTING=OFF \
+	-DHIPSPARSELT_ENABLE_CLIENT=OFF \
+	-DHIPSPARSELT_ENABLE_BENCHMARKS=OFF \
+	-DHIPSPARSELT_ENABLE_SAMPLES=OFF \
+	-DHIPSPARSELT_ENABLE_MARKER=OFF \
+	-DHIPSPARSELT_ENABLE_FETCH=OFF \
+	-DROCM_PATH=%{_prefix} \
+	-DCMAKE_PREFIX_PATH=%{_prefix} \
+	-G Ninja
+%ninja_build -C build
+
+%install
+%ninja_install -C build
+
+%files
+%license LICENSE.md
+%doc README.md
+%{_libdir}/libhipsparselt.so.*
+
+%files devel
+%{_includedir}/hipsparselt/
+%{_libdir}/libhipsparselt.so
+%{_libdir}/cmake/hipsparselt/
