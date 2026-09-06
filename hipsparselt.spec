@@ -7,7 +7,7 @@ Summary:	HIP structured-sparsity sparse-matrix library
 License:	MIT
 Group:		System/Libraries
 URL:		https://github.com/ROCm/rocm-libraries
-Source0:	%{rocm_libraries_source hipsparselt}
+Source0:	https://github.com/ROCm/rocm-libraries/releases/download/therock-10.0/hipsparselt.tar.gz#/hipsparselt-%{version}.tar.gz
 
 BuildRequires:	rocm-rpm-macros
 BuildRequires:	cmake
