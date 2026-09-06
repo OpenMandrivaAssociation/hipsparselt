@@ -52,8 +52,8 @@ mkdir -p "$TMPDIR"
 CXXFLAGS=$(printf '%s' "%{optflags}" | sed -E 's/-mfpmath=[^ ]+//g; s/ -m[a-z0-9+.=]+//g')
 export CXXFLAGS
 %cmake %{rocm_cmake_fhs} \
-	-DAMDGPU_TARGETS="gfx1100;gfx1101;gfx1200;gfx1201" \
-	-DGPU_TARGETS="gfx1100;gfx1101;gfx1200;gfx1201" \
+	-DAMDGPU_TARGETS="gfx942;gfx950" \
+	-DGPU_TARGETS="gfx942;gfx950" \
 	-DCMAKE_BUILD_TYPE=Release \
 	-DCMAKE_CXX_COMPILER=hipcc \
 	-DCMAKE_CXX_FLAGS="$CXXFLAGS" \
