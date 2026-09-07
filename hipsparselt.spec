@@ -10,6 +10,8 @@ URL:		https://github.com/ROCm/rocm-libraries
 Source0:	https://github.com/ROCm/rocm-libraries/releases/download/therock-10.0/hipsparselt.tar.gz#/hipsparselt-%{version}.tar.gz
 # TheRock hipSPARSELt add_subdirectory()s a sibling hipblaslt tree for tensilelite-host.
 Source1:	https://github.com/ROCm/rocm-libraries/releases/download/therock-10.0/hipblaslt.tar.gz#/hipblaslt-%{version}.tar.gz
+# Same origami/system-rocisa fix as hipblaslt; applied to Source1 after unpack
+Source2:	hipblaslt-0002-system-deps-find-package.patch
 
 BuildRequires:	rocm-rpm-macros
 BuildRequires:	cmake
@@ -21,6 +23,7 @@ BuildRequires:	hipsparse-devel
 BuildRequires:	hipblas-common-devel
 BuildRequires:	cmake(hipblaslt)
 BuildRequires:	cmake(amd_smi)
+BuildRequires:	cmake(origami)
 BuildRequires:	cmake(msgpack-cxx)
 BuildRequires:	boost-devel
 BuildRequires:	pkgconfig(python)
@@ -43,9 +46,11 @@ Requires:	hipsparse-devel
 Headers and CMake package for hipSPARSELt.
 
 %prep
-%autosetup -n hipsparselt -p1
+%setup -q -n hipsparselt
 cd ..
 tar xf %{SOURCE1}
+# Prefer installed origami; do not add_subdirectory ../../shared/origami
+patch -p1 --fuzz=0 -d hipblaslt < %{SOURCE2}
 cd hipsparselt
 
 %build
@@ -70,6 +75,9 @@ export CXXFLAGS
 	-DHIPSPARSELT_ENABLE_SAMPLES=OFF \
 	-DHIPSPARSELT_ENABLE_MARKER=OFF \
 	-DHIPSPARSELT_ENABLE_FETCH=OFF \
+	-DHIPBLASLT_BUNDLE_PYTHON_DEPS=OFF \
+	-DHIPBLASLT_ENABLE_FETCH=OFF \
+	-DHIPBLASLT_ENABLE_ROCROLLER=OFF \
 	-DHIPSPARSELT_HIPBLASLT_PATH="%{_builddir}/hipblaslt" \
 	-DROCM_PATH=%{_prefix} \
 	-DCMAKE_PREFIX_PATH=%{_prefix} \
