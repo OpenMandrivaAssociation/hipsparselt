@@ -1,13 +1,10 @@
 Include <cstring> for host memcpy/strcpy.
 
-hipcc -x hip makes hip's __device__ memcpy the only candidate, so
-these host helpers fail. libc string functions need an explicit
-include even with clang++ as CXX.
+hipcc -x hip makes hip device memcpy the only candidate.
 
 --- a/library/src/hcc_detail/hipsparselt.cpp
 +++ b/library/src/hcc_detail/hipsparselt.cpp
-@@ -32,6 +32,7 @@
- #include <hipsparselt/hipsparselt.h>
+@@ -33,6 +33,7 @@
  #include <rocsparselt.h>
  #include <stdio.h>
  #include <stdlib.h>
