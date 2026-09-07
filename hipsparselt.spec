@@ -32,6 +32,7 @@ BuildRequires:	pkgconfig(python)
 BuildRequires:	python%{pyver}dist(rocisa)
 BuildRequires:	python%{pyver}dist(pyyaml)
 BuildRequires:	openmp-devel
+BuildRequires:	cmake(AMDDeviceLibs)
 BuildRequires:	clang >= %{rocm_llvm_maj_ver}
 
 %description
@@ -60,6 +61,10 @@ cd hipsparselt
 # then shadows libc. Same as hipblaslt: clang++ for host, clang++ for HIP.
 export CXX=clang++
 export CC=clang
+export ROCM_PATH=%{_prefix}
+export HIP_PATH=%{_prefix}
+export HIP_DEVICE_LIB_PATH=%{_libdir}/amdgcn/bitcode
+export CMAKE_HIP_FLAGS="%{rocm_hip_clang_flags}"
 export TMPDIR=%{_builddir}/.hsplt-tmp
 mkdir -p "$TMPDIR"
 CXXFLAGS=$(printf '%s' "%{optflags}" | sed -E 's/-mfpmath=[^ ]+//g; s/ -m[a-z0-9+.=]+//g')
@@ -70,8 +75,8 @@ export CXXFLAGS
 	-DCMAKE_BUILD_TYPE=Release \
 	-DCMAKE_CXX_COMPILER=clang++ \
 	-DCMAKE_HIP_COMPILER=clang++ \
-	-DCMAKE_HIP_FLAGS="--rocm-path=%{_prefix} --rocm-device-lib-path=%{_libdir}/amdgcn/bitcode" \
-	-DCMAKE_CXX_FLAGS="$CXXFLAGS" \
+	-DCMAKE_HIP_FLAGS="%{rocm_hip_clang_flags}" \
+	-DCMAKE_CXX_FLAGS="$CXXFLAGS --rocm-path=%{_prefix} --rocm-device-lib-path=%{_libdir}/amdgcn/bitcode" \
 	-DOpenMP_CXX_FLAGS=-fopenmp \
 	-DOpenMP_CXX_LIB_NAMES=omp \
 	-DOpenMP_omp_LIBRARY=%{_libdir}/libomp.so \
