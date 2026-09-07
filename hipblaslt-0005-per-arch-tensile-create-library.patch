@@ -1,0 +1,94 @@
+--- a/cmake/HipBLASLtCodegen.cmake	2026-08-26 11:34:26.948105600 +0200
++++ b/cmake/HipBLASLtCodegen.cmake	2026-09-02 18:37:28.037564496 +0200
+@@ -44,8 +44,9 @@
+ 
+     file(MAKE_DIRECTORY "${_cdl_OUTPUT_DIR}/library")
+ 
+-    list(JOIN _cdl_ARCHES "$<SEMICOLON>" _arches_semi)
+-    set(_opts_list "--architecture=${_arches_semi}" "--cxx-compiler=${_cdl_CXX_COMPILER}")
++    # Architecture is passed per TensileCreateLibrary invocation below.
++    # One Python process holding every gfx* solution set is SIGKILL'd on ABF.
++    set(_opts_list "--cxx-compiler=${_cdl_CXX_COMPILER}")
+     if(_cdl_OFFLOAD_BUNDLER)
+         list(APPEND _opts_list "--offload-bundler=${_cdl_OFFLOAD_BUNDLER}")
+     endif()
+@@ -80,46 +81,46 @@
+         list(APPEND _opts_list "--disable-asm-comments")
+     endif()
+ 
+-    set(_known_bugs "${_codegen_dir}/Tensile/TensileLogic/known_bugs.yaml")
+-    set(_logic_stamp "${CMAKE_CURRENT_BINARY_DIR}/${_cdl_TARGET}-TensileLogic.stamp")
+-    add_custom_command(
+-        OUTPUT "${_logic_stamp}"
+-        COMMENT "Validating library logic (TensileLogic --check-all) for ${_cdl_TARGET} ..."
+-        COMMAND ${HIPBLASLT_PYTHON_COMMAND}
+-            "${_codegen_dir}/Tensile/bin/TensileLogic"
+-            "${_cdl_LOGIC_PATH}"
+-            --known-bugs
+-            "${_known_bugs}"
+-            --check-all
+-        COMMAND ${CMAKE_COMMAND} -E touch "${_logic_stamp}"
+-        DEPENDS ${HIPBLASLT_PYTHON_DEPS} "${_known_bugs}"
+-        VERBATIM
+-        USES_TERMINAL
+-    )
+-
++    # TensileLogic --check-all loads every YAML and OOMs joblib workers on ABF.
++    # Skip it; we ship upstream logic unchanged.
++    #
++    # Run TensileCreateLibrary once per GPU target so peak RAM is one arch's
++    # solutions. Lazy-load output is already per-arch under library/<gfx>/.
++    # Drop build_tmp after each arch to keep the disk footprint down.
+     set(_output_stamp "${CMAKE_CURRENT_BINARY_DIR}/${_cdl_TARGET}.stamp")
+-    set(_tcl_command
+-        ${HIPBLASLT_PYTHON_COMMAND} -m Tensile.TensileCreateLibrary
+-        ${_opts_list}
+-        "${_cdl_LOGIC_PATH}"
+-        "${_cdl_OUTPUT_DIR}"
+-        HIP
+-    )
++    set(_prev_tensile_stamp)
++    foreach(_arch IN LISTS _cdl_ARCHES)
++        set(_arch_stamp "${CMAKE_CURRENT_BINARY_DIR}/${_cdl_TARGET}-${_arch}.stamp")
++        add_custom_command(
++            OUTPUT "${_arch_stamp}"
++            COMMENT "Building hipBLASLt device library for ${_arch} ..."
++            COMMAND ${HIPBLASLT_PYTHON_COMMAND} -m Tensile.TensileCreateLibrary
++                "--architecture=${_arch}"
++                ${_opts_list}
++                "${_cdl_LOGIC_PATH}"
++                "${_cdl_OUTPUT_DIR}"
++                HIP
++            COMMAND ${CMAKE_COMMAND} -E rm -rf "${_cdl_OUTPUT_DIR}/build_tmp"
++            COMMAND ${CMAKE_COMMAND} -E touch "${_arch_stamp}"
++            DEPENDS ${HIPBLASLT_PYTHON_DEPS} ${_prev_tensile_stamp}
++            VERBATIM
++            USES_TERMINAL
++        )
++        message(STATUS "Device lib build for ${_arch}: TensileCreateLibrary --architecture=${_arch}")
++        set(_prev_tensile_stamp "${_arch_stamp}")
++    endforeach()
++
++    if(NOT _prev_tensile_stamp)
++        message(FATAL_ERROR "hipblaslt_create_device_library: ARCHES is empty")
++    endif()
++
+     add_custom_command(
+         OUTPUT "${_output_stamp}"
+-        COMMENT "Building device libraries to ${_cdl_OUTPUT_DIR} ..."
+-        COMMAND ${_tcl_command}
+         COMMAND ${CMAKE_COMMAND} -E touch "${_output_stamp}"
+-        DEPENDS ${HIPBLASLT_PYTHON_DEPS} "${_logic_stamp}"
++        DEPENDS ${_prev_tensile_stamp}
+         VERBATIM
+-        USES_TERMINAL
+     )
+ 
+-    block(SCOPE_FOR VARIABLES)
+-        list(JOIN _tcl_command " " _formatted_tcl)
+-        message(STATUS "Device lib build command (${_cdl_TARGET}): ${_formatted_tcl}")
+-    endblock()
+-
+     add_custom_target(${_cdl_TARGET} ALL
+         DEPENDS "${_output_stamp}"
+     )

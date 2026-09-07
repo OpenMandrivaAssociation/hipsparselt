@@ -12,6 +12,8 @@ Source0:	https://github.com/ROCm/rocm-libraries/releases/download/therock-10.0/h
 Source1:	https://github.com/ROCm/rocm-libraries/releases/download/therock-10.0/hipblaslt.tar.gz#/hipblaslt-%{version}.tar.gz
 # Same origami/system-rocisa fix as hipblaslt; applied to Source1 after unpack
 Source2:	hipblaslt-0002-system-deps-find-package.patch
+# Skip TensileLogic --check-all (OOMs); one TensileCreateLibrary per gfx*
+Source3:	hipblaslt-0005-per-arch-tensile-create-library.patch
 # Host memcpy/strcpy vs hip device memcpy when compiled -x hip
 Patch0:		0001-include-cstring-for-memcpy-strcpy.patch
 
@@ -31,6 +33,8 @@ BuildRequires:	boost-devel
 BuildRequires:	pkgconfig(python)
 BuildRequires:	python%{pyver}dist(rocisa)
 BuildRequires:	python%{pyver}dist(pyyaml)
+BuildRequires:	python%{pyver}dist(joblib)
+BuildRequires:	python%{pyver}dist(msgpack)
 BuildRequires:	openmp-devel
 BuildRequires:	cmake(AMDDeviceLibs)
 BuildRequires:	clang >= %{rocm_llvm_maj_ver}
@@ -54,6 +58,7 @@ cd ..
 tar xf %{SOURCE1}
 # Prefer installed origami; do not add_subdirectory ../../shared/origami
 patch -p1 --fuzz=0 -d hipblaslt < %{SOURCE2}
+patch -p1 --fuzz=0 -d hipblaslt < %{SOURCE3}
 cd hipsparselt
 
 %build
