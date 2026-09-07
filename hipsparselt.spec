@@ -1,5 +1,9 @@
 # Structured-sparsity BLAS. TheRock 10.0.
 
+# Helper .hsaco are AMDGPU ELF ET_DYN. Full find-debuginfo strip drops .symtab
+# and hipModuleLoad then returns "device kernel image is invalid".
+%global _find_debuginfo_opts -g
+
 Name:		hipsparselt
 Version:	10.0.0
 Release:	1
@@ -102,11 +106,14 @@ export CXXFLAGS
 
 %install
 %ninja_install -C build
+find %{buildroot} -name '*.hsaco' -exec chmod 644 {} +
+rm -f %{buildroot}%{_docdir}/hipsparselt/LICENSE.md
 
 %files
 %license LICENSE.md
 %doc README.md
 %{_libdir}/libhipsparselt.so.*
+%{_libdir}/hipsparselt/
 
 %files devel
 %{_includedir}/hipsparselt/
