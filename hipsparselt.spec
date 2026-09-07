@@ -12,6 +12,8 @@ Source0:	https://github.com/ROCm/rocm-libraries/releases/download/therock-10.0/h
 Source1:	https://github.com/ROCm/rocm-libraries/releases/download/therock-10.0/hipblaslt.tar.gz#/hipblaslt-%{version}.tar.gz
 # Same origami/system-rocisa fix as hipblaslt; applied to Source1 after unpack
 Source2:	hipblaslt-0002-system-deps-find-package.patch
+# Host memcpy/strcpy vs hip device memcpy when compiled -x hip
+Patch0:		0001-include-cstring-for-memcpy-strcpy.patch
 
 BuildRequires:	rocm-rpm-macros
 BuildRequires:	cmake
@@ -46,7 +48,7 @@ Requires:	hipsparse-devel
 Headers and CMake package for hipSPARSELt.
 
 %prep
-%setup -q -n hipsparselt
+%autosetup -n hipsparselt -p1
 cd ..
 tar xf %{SOURCE1}
 # Prefer installed origami; do not add_subdirectory ../../shared/origami
@@ -54,7 +56,9 @@ patch -p1 --fuzz=0 -d hipblaslt < %{SOURCE2}
 cd hipsparselt
 
 %build
-export CXX=hipcc
+# hipcc as CXX compiles host .cpp with -x hip; hip's __device__ memcpy
+# then shadows libc. Same as hipblaslt: clang++ for host, clang++ for HIP.
+export CXX=clang++
 export CC=clang
 export TMPDIR=%{_builddir}/.hsplt-tmp
 mkdir -p "$TMPDIR"
@@ -64,7 +68,9 @@ export CXXFLAGS
 	-DAMDGPU_TARGETS="gfx942;gfx950" \
 	-DGPU_TARGETS="gfx942;gfx950" \
 	-DCMAKE_BUILD_TYPE=Release \
-	-DCMAKE_CXX_COMPILER=hipcc \
+	-DCMAKE_CXX_COMPILER=clang++ \
+	-DCMAKE_HIP_COMPILER=clang++ \
+	-DCMAKE_HIP_FLAGS="--rocm-path=%{_prefix} --rocm-device-lib-path=%{_libdir}/amdgcn/bitcode" \
 	-DCMAKE_CXX_FLAGS="$CXXFLAGS" \
 	-DOpenMP_CXX_FLAGS=-fopenmp \
 	-DOpenMP_CXX_LIB_NAMES=omp \
