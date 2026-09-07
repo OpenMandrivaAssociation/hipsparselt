@@ -22,6 +22,7 @@ BuildRequires:	hipblas-common-devel
 BuildRequires:	cmake(hipblaslt)
 BuildRequires:	cmake(amd_smi)
 BuildRequires:	cmake(msgpack-cxx)
+BuildRequires:	boost-devel
 BuildRequires:	pkgconfig(python)
 BuildRequires:	python%{pyver}dist(rocisa)
 BuildRequires:	python%{pyver}dist(pyyaml)
