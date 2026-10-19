@@ -1,19 +1,19 @@
-# Structured-sparsity BLAS. TheRock 10.0.
+# Structured-sparsity BLAS. TheRock 10.1.
 
 # Helper .hsaco are AMDGPU ELF ET_DYN. Full find-debuginfo strip drops .symtab
 # and hipModuleLoad then returns "device kernel image is invalid".
 %global _find_debuginfo_opts -g
 
 Name:		hipsparselt
-Version:	10.0.0
+Version:	10.1.0
 Release:	1
 Summary:	HIP structured-sparsity sparse-matrix library
 License:	MIT
 Group:		System/Libraries
 URL:		https://github.com/ROCm/rocm-libraries
-Source0:	https://github.com/ROCm/rocm-libraries/releases/download/therock-10.0/hipsparselt.tar.gz#/hipsparselt-%{version}.tar.gz
+Source0:	https://github.com/ROCm/rocm-libraries/releases/download/therock-10.1/hipsparselt.tar.gz#/hipsparselt-%{version}.tar.gz
 # TheRock hipSPARSELt add_subdirectory()s a sibling hipblaslt tree for tensilelite-host.
-Source1:	https://github.com/ROCm/rocm-libraries/releases/download/therock-10.0/hipblaslt.tar.gz#/hipblaslt-%{version}.tar.gz
+Source1:	https://github.com/ROCm/rocm-libraries/releases/download/therock-10.1/hipblaslt.tar.gz#/hipblaslt-%{version}.tar.gz
 # Same origami/system-rocisa fix as hipblaslt; applied to Source1 after unpack
 Source2:	hipblaslt-0002-system-deps-find-package.patch
 # Skip TensileLogic --check-all (OOMs); one TensileCreateLibrary per gfx*
