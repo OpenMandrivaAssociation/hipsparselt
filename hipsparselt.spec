@@ -78,6 +78,16 @@ export TMPDIR=%{_builddir}/.hsplt-tmp
 mkdir -p "$TMPDIR"
 CXXFLAGS=$(printf '%s' "%{optflags}" | sed -E 's/-mfpmath=[^ ]+//g; s/ -m[a-z0-9+.=]+//g')
 export CXXFLAGS
+# Tensile defaults to one worker per CPU. gfx942 logic is 1.3 GiB of YAML
+# (162 files, 48 of them ~30 MiB). 32 workers beside ninja -j32 are SIGKILL'd,
+# 8 workers die while generating 51431 assembly kernels, and 2 workers on
+# x86_64 are SIGKILL'd as soon as logic parsing starts. Parsing stays in
+# this process when the job count is 1. znver1 still fits 2.
+%ifarch x86_64
+%global tensile_jobs 1
+%else
+%global tensile_jobs 2
+%endif
 %cmake %{rocm_cmake_fhs} \
 	-DAMDGPU_TARGETS="gfx942;gfx950" \
 	-DGPU_TARGETS="gfx942;gfx950" \
@@ -99,14 +109,11 @@ export CXXFLAGS
 	-DHIPBLASLT_ENABLE_FETCH=OFF \
 	-DHIPBLASLT_ENABLE_ROCROLLER=OFF \
 	-DHIPSPARSELT_HIPBLASLT_PATH="%{_builddir}/hipblaslt" \
-	-DTENSILELITE_BUILD_PARALLEL_LEVEL=2 \
+	-DTENSILELITE_BUILD_PARALLEL_LEVEL=%{tensile_jobs} \
 	-DROCM_PATH=%{_prefix} \
 	-DCMAKE_PREFIX_PATH=%{_prefix} \
 	-G Ninja
-# Tensile defaults to one worker per CPU. 32 workers beside ninja -j32
-# are SIGKILL'd while building the gfx942 device library, and 8 workers
-# were still killed (51431 assembly kernels). Two workers fit.
-RPM_BUILD_NCPUS=2
+RPM_BUILD_NCPUS=%{tensile_jobs}
 export RPM_BUILD_NCPUS
 %ninja_build
 
