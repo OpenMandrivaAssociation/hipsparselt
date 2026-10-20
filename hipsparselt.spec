@@ -18,6 +18,9 @@ Source1:	https://github.com/ROCm/rocm-libraries/releases/download/therock-10.1/h
 Source2:	hipblaslt-0002-system-deps-find-package.patch
 # Skip TensileLogic --check-all (OOMs); one TensileCreateLibrary per gfx*
 Source3:	hipblaslt-0005-per-arch-tensile-create-library.patch
+# writeSolutionsAndKernelsTCL kept every kernel's assembly text. gfx942
+# (51431 kernels) is SIGKILL'd at ~5% even in-process. Return occupancy only.
+Source4:	hipblaslt-0006-drop-asm-text.patch
 # Host memcpy/strcpy vs hip device memcpy when compiled -x hip
 Patch0:		0001-include-cstring-for-memcpy-strcpy.patch
 
@@ -63,6 +66,7 @@ tar xf %{SOURCE1}
 # Prefer installed origami; do not add_subdirectory ../../shared/origami
 patch -p1 --fuzz=0 -d hipblaslt < %{SOURCE2}
 patch -p1 --fuzz=0 -d hipblaslt < %{SOURCE3}
+patch -p1 --fuzz=0 -d hipblaslt < %{SOURCE4}
 cd hipsparselt
 
 %build
@@ -79,9 +83,10 @@ mkdir -p "$TMPDIR"
 CXXFLAGS=$(printf '%s' "%{optflags}" | sed -E 's/-mfpmath=[^ ]+//g; s/ -m[a-z0-9+.=]+//g')
 export CXXFLAGS
 # Tensile defaults to one worker per CPU. gfx942 logic is 1.3 GiB of YAML
-# (162 files, 88327 solutions). Forking workers after that load is SIGKILL'd:
-# 8 and 2 workers die at "Generating assembly kernels" (51431 tasks), and
-# x86_64 dies as soon as the load forks. Job count 1 stays in-process.
+# (162 files, 88327 solutions). Forking workers after that load is SIGKILL'd
+# (8 and 2 workers). One in-process worker still died at 5% of 51431 kernels
+# because the result list kept every assembly text. Source4 drops that text.
+# Stay at 1 worker: a fork would copy the loaded solution set again.
 %global tensile_jobs 1
 %cmake %{rocm_cmake_fhs} \
 	-DAMDGPU_TARGETS="gfx942;gfx950" \

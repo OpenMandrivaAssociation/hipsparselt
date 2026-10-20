@@ -1,0 +1,15 @@
+--- a/tensilelite/Tensile/TensileCreateLibrary/Run.py
++++ b/tensilelite/Tensile/TensileCreateLibrary/Run.py
+@@ -672,8 +672,10 @@
+         def composed_function(kernel):
+             processed_kernel = unaryProcessKernelSource(kernel)
+             written_kernel = unaryWriteAssembly(processed_kernel)
+-            assembled_kernel = assemble(written_kernel)
+-            return processed_kernel
++            # Assembly is on disk. assemble() already returns only occupancy
++            # fields. Keeping src for 51431 gfx942 kernels is SIGKILL'd even
++            # with one in-process worker.
++            return assemble(written_kernel)
+         return composed_function
+ 
+     results = ParallelMap2(
