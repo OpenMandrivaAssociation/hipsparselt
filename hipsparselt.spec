@@ -21,6 +21,10 @@ Source3:	hipblaslt-0005-per-arch-tensile-create-library.patch
 # writeSolutionsAndKernelsTCL kept every kernel's assembly text. gfx942
 # (51431 kernels) is SIGKILL'd at ~5% even in-process. Return occupancy only.
 Source4:	hipblaslt-0006-drop-asm-text.patch
+# One in-process worker needs ~10h for gfx942 and ABF kills rpmbuild at
+# 36000s. Joblib forks of that heap are SIGKILL'd. Split logic across
+# fresh interpreters, then link one library.
+Source5:	hipblaslt-0007-shard-kernel-gen.patch
 # Host memcpy/strcpy vs hip device memcpy when compiled -x hip
 Patch0:		0001-include-cstring-for-memcpy-strcpy.patch
 
@@ -67,6 +71,7 @@ tar xf %{SOURCE1}
 patch -p1 --fuzz=0 -d hipblaslt < %{SOURCE2}
 patch -p1 --fuzz=0 -d hipblaslt < %{SOURCE3}
 patch -p1 --fuzz=0 -d hipblaslt < %{SOURCE4}
+patch -p1 --fuzz=0 -d hipblaslt < %{SOURCE5}
 cd hipsparselt
 
 %build
@@ -82,12 +87,13 @@ export TMPDIR=%{_builddir}/.hsplt-tmp
 mkdir -p "$TMPDIR"
 CXXFLAGS=$(printf '%s' "%{optflags}" | sed -E 's/-mfpmath=[^ ]+//g; s/ -m[a-z0-9+.=]+//g')
 export CXXFLAGS
-# Tensile defaults to one worker per CPU. gfx942 logic is 1.3 GiB of YAML
-# (162 files, 88327 solutions). Forking workers after that load is SIGKILL'd
-# (8 and 2 workers). One in-process worker still died at 5% of 51431 kernels
-# because the result list kept every assembly text. Source4 drops that text.
-# Stay at 1 worker: a fork would copy the loaded solution set again.
+# gfx942 logic is 1.3 GiB (162 files, 88327 solutions, 51431 kernels).
+# Forking joblib after that load is SIGKILL'd. One worker reached 98% and
+# then mock Timeout(36000) (znver1 679289). Source5 runs two fresh
+# interpreters (--jobs stays 1) and the parent links the objects.
+# ninja stays at 1 so gfx942 and gfx950 are not both resident.
 %global tensile_jobs 1
+%global tensile_shards 2
 %cmake %{rocm_cmake_fhs} \
 	-DAMDGPU_TARGETS="gfx942;gfx950" \
 	-DGPU_TARGETS="gfx942;gfx950" \
@@ -115,6 +121,8 @@ export CXXFLAGS
 	-G Ninja
 RPM_BUILD_NCPUS=%{tensile_jobs}
 export RPM_BUILD_NCPUS
+export TENSILE_KERNEL_SHARDS=%{tensile_shards}
+export PYTHONUNBUFFERED=1
 %ninja_build
 
 %install

@@ -1,0 +1,268 @@
+--- a/tensilelite/Tensile/TensileCreateLibrary/Run.py
++++ b/tensilelite/Tensile/TensileCreateLibrary/Run.py
+@@ -28,9 +28,12 @@
+ import functools
+ import glob
+ import itertools
++import json
+ import os
+ import shutil
+ import pickle
++import subprocess
++import sys
+ import zlib
+ from pathlib import Path
+ from timeit import default_timer as timer
+@@ -678,13 +681,42 @@
+             return assemble(written_kernel)
+         return composed_function
+ 
+-    results = ParallelMap2(
+-        compose(unaryAssemble, unaryWriteAssembly, unaryProcessKernelSource),
+-        uniqueAsmKernels,
+-        "Generating assembly kernels",
+-        multiArg=False,
+-        return_as="list"
+-    )
++    reuse_dir = os.environ.get("TENSILE_REUSE_OBJECTS")
++    info_in = os.environ.get("TENSILE_KERNEL_INFO_IN")
++    if reuse_dir and info_in and not os.environ.get("TENSILE_SHARD_CHILD"):
++        info = _load_kernel_info(info_in)
++        results = []
++        missing = []
++        for kernel in uniqueAsmKernels:
++            base = kernel["BaseName"]
++            src = Path(reuse_dir) / f"{base}.o"
++            dest = assemblyTmpPath / f"{base}.o"
++            values = info.get(base)
++            if not src.is_file() or values is None:
++                missing.append(base)
++                continue
++            if not dest.exists():
++                try:
++                    os.link(src, dest)
++                except OSError:
++                    shutil.copy2(src, dest)
++            results.append(KernelMinResult(values[0], values[1], values[2], values[3]))
++        if missing:
++            printExit(
++                f"Missing {len(missing)} reused kernels, for example {missing[:3]}"
++            )
++        print(f"# Reused {len(results)} assembly objects", flush=True)
++    else:
++        results = list(ParallelMap2(
++            compose(unaryAssemble, unaryWriteAssembly, unaryProcessKernelSource),
++            uniqueAsmKernels,
++            "Generating assembly kernels",
++            multiArg=False,
++            return_as="list"
++        ))
++        info_out = os.environ.get("TENSILE_KERNEL_INFO")
++        if info_out:
++            _dump_kernel_info(info_out, uniqueAsmKernels, results)
+ 
+     buildAssemblyCodeObjectFiles(
+         asmToolchain.linker,
+@@ -1006,6 +1038,193 @@
+ ################################################################################
+ # Tensile Create Library
+ ################################################################################
++
++def _tensile_shard_count(logic_files):
++    """How many fresh interpreters should generate assembly kernels.
++
++    gfx942 is 1.3 GiB of logic and 51431 kernels. One process needs about
++    10 hours, and the ABF builder kills rpmbuild at 36000s. Joblib workers
++    fork that heap and are SIGKILL'd. Two interpreters that each load half
++    of the YAML finish in about 5 hours. This process then links the objects
++    and writes the one library the runtime loads.
++    """
++    if os.environ.get("TENSILE_SHARD_CHILD"):
++        return 1
++    try:
++        shards = int(os.environ.get("TENSILE_KERNEL_SHARDS", "1"))
++    except ValueError:
++        return 1
++    if shards < 2 or len(logic_files) < 2:
++        return 1
++    total = 0
++    for path in logic_files:
++        try:
++            total += os.path.getsize(path)
++        except OSError:
++            return 1
++    # gfx950 is about 35 MiB. gfx942 is 1.3 GiB.
++    if total < 200 * 1024 * 1024:
++        return 1
++    return min(shards, len(logic_files))
++
++
++def _partition_logic_files(logic_files, shards):
++    sized = []
++    for path in logic_files:
++        sized.append((os.path.getsize(path), path))
++    sized.sort(reverse=True)
++    groups = [[] for _ in range(shards)]
++    totals = [0] * shards
++    for size, path in sized:
++        index = min(range(shards), key=lambda i: totals[i])
++        groups[index].append(path)
++        totals[index] += size
++    return groups, totals
++
++
++def _symlink_shard(files, logic_root, shard_root):
++    logic_root = Path(logic_root).resolve()
++    shard_root = Path(shard_root)
++    for src in files:
++        src_path = Path(src).resolve()
++        try:
++            rel = src_path.relative_to(logic_root)
++        except ValueError:
++            rel = Path(src_path.name)
++        dest = shard_root / rel
++        dest.parent.mkdir(parents=True, exist_ok=True)
++        if not dest.exists():
++            dest.symlink_to(src_path)
++
++
++def _rewrite_tcl_argv(logic_path, output_path, shard_logic, shard_output):
++    replaced_logic = False
++    replaced_output = False
++    args = []
++    for arg in sys.argv[1:]:
++        if arg == logic_path and not replaced_logic:
++            args.append(str(shard_logic))
++            replaced_logic = True
++        elif arg == output_path and not replaced_output:
++            args.append(str(shard_output))
++            replaced_output = True
++        else:
++            args.append(arg)
++    if not replaced_logic or not replaced_output:
++        printExit("Tensile shard: LogicPath and OutputPath were not on argv")
++    if "--keep-build-tmp" not in args:
++        args.append("--keep-build-tmp")
++    return [sys.executable, "-m", "Tensile.TensileCreateLibrary", *args]
++
++
++def _harvest_assembly_objects(shard_output, stash):
++    stash = Path(stash)
++    stash.mkdir(parents=True, exist_ok=True)
++    count = 0
++    for path in Path(shard_output).rglob("*.o"):
++        if "assembly" not in path.parts:
++            continue
++        dest = stash / path.name
++        if dest.exists():
++            continue
++        try:
++            os.link(path, dest)
++        except OSError:
++            shutil.copy2(path, dest)
++        count += 1
++    return count
++
++
++def _load_kernel_info(path):
++    with open(path, encoding="utf-8") as handle:
++        data = json.load(handle)
++    if not isinstance(data, dict):
++        printExit(f"Tensile kernel info {path} is not an object")
++    return data
++
++
++def _dump_kernel_info(path, kernels, results):
++    payload = {}
++    for kernel, result in zip(kernels, results):
++        payload[kernel["BaseName"]] = [
++            int(result.err),
++            int(result.cuoccupancy),
++            int(result.pgr),
++            int(result.mathclk),
++        ]
++    dest = Path(path)
++    dest.parent.mkdir(parents=True, exist_ok=True)
++    with open(dest, "w", encoding="utf-8") as handle:
++        json.dump(payload, handle)
++
++
++def _generate_kernels_in_shards(logic_files, arguments, output_path):
++    shards = _tensile_shard_count(logic_files)
++    if shards < 2:
++        return
++    work = Path(output_path) / ".tensile-shards"
++    if work.exists():
++        shutil.rmtree(work)
++    work.mkdir(parents=True)
++    groups, totals = _partition_logic_files(logic_files, shards)
++    stash = work / "objects"
++    merged = {}
++    print(f"# Tensile kernel shards: {shards}", flush=True)
++    procs = []
++    for index, (group, total) in enumerate(zip(groups, totals)):
++        logic_dir = (work / f"logic-{index}").resolve()
++        out_dir = (work / f"out-{index}").resolve()
++        info_path = work / f"info-{index}.json"
++        _symlink_shard(group, arguments["LogicPath"], logic_dir)
++        out_dir.mkdir(parents=True)
++        cmd = _rewrite_tcl_argv(
++            arguments["LogicPath"], arguments["OutputPath"], logic_dir, out_dir
++        )
++        env = os.environ.copy()
++        env["TENSILE_SHARD_CHILD"] = "1"
++        env.pop("TENSILE_KERNEL_SHARDS", None)
++        env.pop("TENSILE_REUSE_OBJECTS", None)
++        env.pop("TENSILE_KERNEL_INFO_IN", None)
++        env["TENSILE_KERNEL_INFO"] = str(info_path)
++        env["PYTHONUNBUFFERED"] = "1"
++        print(
++            f"# shard {index}: {len(group)} files, {total / 1024 / 1024:.1f} MiB",
++            flush=True,
++        )
++        procs.append((index, info_path, out_dir, logic_dir, subprocess.Popen(cmd, env=env)))
++    failed = []
++    for index, info_path, out_dir, logic_dir, proc in procs:
++        rc = proc.wait()
++        print(f"# shard {index} exited {rc}", flush=True)
++        if rc != 0:
++            failed.append((index, rc))
++    if failed:
++        printExit(
++            "Tensile kernel shards failed: "
++            + ", ".join(f"{index} exit {rc}" for index, rc in failed)
++        )
++    for index, info_path, out_dir, logic_dir, proc in procs:
++        if not info_path.is_file():
++            printExit(f"Tensile shard {index} wrote no kernel info")
++        for name, values in _load_kernel_info(info_path).items():
++            previous = merged.get(name)
++            if previous is not None and previous != values:
++                printExit(f"Tensile shard kernel info mismatch for {name}")
++            merged[name] = values
++        got = _harvest_assembly_objects(out_dir, stash)
++        print(f"# shard {index}: harvested {got} objects", flush=True)
++        if got < 1:
++            printExit(f"Tensile shard {index} produced no assembly objects")
++        shutil.rmtree(out_dir, ignore_errors=True)
++        shutil.rmtree(logic_dir, ignore_errors=True)
++    info_out = work / "info.json"
++    with open(info_out, "w", encoding="utf-8") as handle:
++        json.dump(merged, handle)
++    os.environ["TENSILE_REUSE_OBJECTS"] = str(stash)
++    os.environ["TENSILE_KERNEL_INFO_IN"] = str(info_out)
++    print(f"# reused {len(merged)} kernels from {shards} shards", flush=True)
++
++
+ @profile
+ def run():
+     start = timer()
+@@ -1163,6 +1382,8 @@
+     for logicFile in logicFiles:
+         print2("#   %s" % logicFile)
+ 
++    _generate_kernels_in_shards(logicFiles, arguments, outputPath)
++
+     start_glds = timer()
+     solutions, masterLibraries, libraryMapping = generateLogicDataAndSolutions(
+         logicFiles, arguments, asmToolchain.assembler, isaInfoMap
