@@ -79,15 +79,10 @@ mkdir -p "$TMPDIR"
 CXXFLAGS=$(printf '%s' "%{optflags}" | sed -E 's/-mfpmath=[^ ]+//g; s/ -m[a-z0-9+.=]+//g')
 export CXXFLAGS
 # Tensile defaults to one worker per CPU. gfx942 logic is 1.3 GiB of YAML
-# (162 files, 48 of them ~30 MiB). 32 workers beside ninja -j32 are SIGKILL'd,
-# 8 workers die while generating 51431 assembly kernels, and 2 workers on
-# x86_64 are SIGKILL'd as soon as logic parsing starts. Parsing stays in
-# this process when the job count is 1. znver1 still fits 2.
-%ifarch x86_64
+# (162 files, 88327 solutions). Forking workers after that load is SIGKILL'd:
+# 8 and 2 workers die at "Generating assembly kernels" (51431 tasks), and
+# x86_64 dies as soon as the load forks. Job count 1 stays in-process.
 %global tensile_jobs 1
-%else
-%global tensile_jobs 2
-%endif
 %cmake %{rocm_cmake_fhs} \
 	-DAMDGPU_TARGETS="gfx942;gfx950" \
 	-DGPU_TARGETS="gfx942;gfx950" \
