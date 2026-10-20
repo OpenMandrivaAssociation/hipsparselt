@@ -99,9 +99,14 @@ export CXXFLAGS
 	-DHIPBLASLT_ENABLE_FETCH=OFF \
 	-DHIPBLASLT_ENABLE_ROCROLLER=OFF \
 	-DHIPSPARSELT_HIPBLASLT_PATH="%{_builddir}/hipblaslt" \
+	-DTENSILELITE_BUILD_PARALLEL_LEVEL=8 \
 	-DROCM_PATH=%{_prefix} \
 	-DCMAKE_PREFIX_PATH=%{_prefix} \
 	-G Ninja
+# Tensile defaults to one worker per CPU. 32 workers beside ninja -j32
+# are SIGKILL'd while building the gfx942 device library.
+RPM_BUILD_NCPUS=8
+export RPM_BUILD_NCPUS
 %ninja_build
 
 %install
