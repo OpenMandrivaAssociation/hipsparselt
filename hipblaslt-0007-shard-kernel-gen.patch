@@ -13,7 +13,7 @@
  import zlib
  from pathlib import Path
  from timeit import default_timer as timer
-@@ -678,13 +681,42 @@
+@@ -678,13 +681,47 @@
              return assemble(written_kernel)
          return composed_function
  
@@ -60,10 +60,15 @@
 +        info_out = os.environ.get("TENSILE_KERNEL_INFO")
 +        if info_out:
 +            _dump_kernel_info(info_out, uniqueAsmKernels, results)
++    if os.environ.get("TENSILE_SHARD_CHILD"):
++        # Leave the .o files for the parent. Code objects and the lazy
++        # library are written once, after the objects are harvested.
++        print(f"# shard child kept {len(results)} objects", flush=True)
++        return len(uniqueAsmKernels), uniqueAsmKernels, results
  
      buildAssemblyCodeObjectFiles(
          asmToolchain.linker,
-@@ -1006,6 +1038,193 @@
+@@ -1006,6 +1043,193 @@
  ################################################################################
  # Tensile Create Library
  ################################################################################
@@ -141,8 +146,8 @@
 +            args.append(arg)
 +    if not replaced_logic or not replaced_output:
 +        printExit("Tensile shard: LogicPath and OutputPath were not on argv")
-+    if "--keep-build-tmp" not in args:
-+        args.append("--keep-build-tmp")
++    # Do not pass --keep-build-tmp. That keeps every .s file, and two gfx942
++    # shards fill the disk (znver1 679544). assemble() unlinks each .s.
 +    return [sys.executable, "-m", "Tensile.TensileCreateLibrary", *args]
 +
 +
@@ -257,7 +262,7 @@
  @profile
  def run():
      start = timer()
-@@ -1163,6 +1382,8 @@
+@@ -1163,6 +1387,8 @@
      for logicFile in logicFiles:
          print2("#   %s" % logicFile)
  
@@ -266,3 +271,19 @@
      start_glds = timer()
      solutions, masterLibraries, libraryMapping = generateLogicDataAndSolutions(
          logicFiles, arguments, asmToolchain.assembler, isaInfoMap
+@@ -1195,6 +1421,15 @@
+         removeTemporaries=not arguments["KeepBuildTmp"],
+         outputArchNames=outArchNames,
+     )
++    if os.environ.get("TENSILE_SHARD_CHILD"):
++        # run() would otherwise write this shard's library and delete build_tmp.
++        print("# shard child done", flush=True)
++        return
++    shard_work = outputPath / ".tensile-shards"
++    if shard_work.is_dir():
++        # The code objects are already written. Drop the harvested .o files
++        # so gfx950 does not inherit that disk use.
++        shutil.rmtree(shard_work, ignore_errors=True)
+     stop_wsk = timer()
+     print(f"Time to generate kernels (s): {(stop_wsk-start_wsk):3.2f}")
+ 

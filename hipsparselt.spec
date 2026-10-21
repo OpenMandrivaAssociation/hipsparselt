@@ -90,7 +90,9 @@ export CXXFLAGS
 # gfx942 logic is 1.3 GiB (162 files, 88327 solutions, 51431 kernels).
 # Forking joblib after that load is SIGKILL'd. One worker reached 98% and
 # then mock Timeout(36000) (znver1 679289). Source5 runs two fresh
-# interpreters (--jobs stays 1) and the parent links the objects.
+# interpreters (--jobs stays 1). Each unlinks its .s after the .o is
+# written and skips code objects. The parent links one library.
+# Keeping the .s files filled the disk (znver1 679544).
 # ninja stays at 1 so gfx942 and gfx950 are not both resident.
 %global tensile_jobs 1
 %global tensile_shards 2
